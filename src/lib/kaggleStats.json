@@ -1,0 +1,213 @@
+{
+  "generated": "2026-05-19T10:31:20.034Z",
+  "source": "application_train.csv (Kaggle Home Credit Default Risk)",
+  "totalRows": 307511,
+  "totalDefaults": 24825,
+  "overallDefaultRate": 8.07,
+  "unemploymentRate": 18.01,
+  "avgExtScoreAll": 0.5144,
+  "avgExtScoreDefault": 0.4109,
+  "defaultRateByEducation": {
+    "Secondary / secondary special": {
+      "count": 218391,
+      "defaults": 19524,
+      "defaultRate": 8.94
+    },
+    "Higher education": {
+      "count": 74863,
+      "defaults": 4009,
+      "defaultRate": 5.36
+    },
+    "Incomplete higher": {
+      "count": 10277,
+      "defaults": 872,
+      "defaultRate": 8.48
+    },
+    "Lower secondary": {
+      "count": 3816,
+      "defaults": 417,
+      "defaultRate": 10.93
+    },
+    "Academic degree": {
+      "count": 164,
+      "defaults": 3,
+      "defaultRate": 1.83
+    }
+  },
+  "defaultRateByIncomeType": {
+    "Working": {
+      "count": 158774,
+      "defaults": 15224,
+      "defaultRate": 9.59
+    },
+    "State servant": {
+      "count": 21703,
+      "defaults": 1249,
+      "defaultRate": 5.75
+    },
+    "Commercial associate": {
+      "count": 71617,
+      "defaults": 5360,
+      "defaultRate": 7.48
+    },
+    "Pensioner": {
+      "count": 55362,
+      "defaults": 2982,
+      "defaultRate": 5.39
+    },
+    "Unemployed": {
+      "count": 22,
+      "defaults": 8,
+      "defaultRate": 36.36
+    },
+    "Student": {
+      "count": 18,
+      "defaults": 0,
+      "defaultRate": 0
+    },
+    "Businessman": {
+      "count": 10,
+      "defaults": 0,
+      "defaultRate": 0
+    },
+    "Maternity leave": {
+      "count": 5,
+      "defaults": 2,
+      "defaultRate": 40
+    }
+  },
+  "defaultRateByRegionRating": {
+    "1": {
+      "count": 32197,
+      "defaults": 1552,
+      "defaultRate": 4.82
+    },
+    "2": {
+      "count": 226984,
+      "defaults": 17907,
+      "defaultRate": 7.89
+    },
+    "3": {
+      "count": 48330,
+      "defaults": 5366,
+      "defaultRate": 11.1
+    }
+  },
+  "defaultRateByOccupation": {
+    "Laborers": {
+      "count": 55186,
+      "defaults": 5838,
+      "defaultRate": 10.58
+    },
+    "Core staff": {
+      "count": 27570,
+      "defaults": 1738,
+      "defaultRate": 6.3
+    },
+    "Accountants": {
+      "count": 9813,
+      "defaults": 474,
+      "defaultRate": 4.83
+    },
+    "Managers": {
+      "count": 21371,
+      "defaults": 1328,
+      "defaultRate": 6.21
+    },
+    "Unknown": {
+      "count": 96391,
+      "defaults": 6278,
+      "defaultRate": 6.51
+    },
+    "Drivers": {
+      "count": 18603,
+      "defaults": 2107,
+      "defaultRate": 11.33
+    },
+    "Sales staff": {
+      "count": 32102,
+      "defaults": 3092,
+      "defaultRate": 9.63
+    },
+    "Cleaning staff": {
+      "count": 4653,
+      "defaults": 447,
+      "defaultRate": 9.61
+    },
+    "Cooking staff": {
+      "count": 5946,
+      "defaults": 621,
+      "defaultRate": 10.44
+    },
+    "Private service staff": {
+      "count": 2652,
+      "defaults": 175,
+      "defaultRate": 6.6
+    },
+    "Medicine staff": {
+      "count": 8537,
+      "defaults": 572,
+      "defaultRate": 6.7
+    },
+    "Security staff": {
+      "count": 6721,
+      "defaults": 722,
+      "defaultRate": 10.74
+    },
+    "High skill tech staff": {
+      "count": 11380,
+      "defaults": 701,
+      "defaultRate": 6.16
+    },
+    "Waiters/barmen staff": {
+      "count": 1348,
+      "defaults": 152,
+      "defaultRate": 11.28
+    },
+    "Low-skill Laborers": {
+      "count": 2093,
+      "defaults": 359,
+      "defaultRate": 17.15
+    },
+    "Realty agents": {
+      "count": 751,
+      "defaults": 59,
+      "defaultRate": 7.86
+    },
+    "Secretaries": {
+      "count": 1305,
+      "defaults": 92,
+      "defaultRate": 7.05
+    },
+    "IT staff": {
+      "count": 526,
+      "defaults": 34,
+      "defaultRate": 6.46
+    },
+    "HR staff": {
+      "count": 563,
+      "defaults": 36,
+      "defaultRate": 6.39
+    }
+  },
+  "psak71Stages": {
+    "stage1": {
+      "count": 220448,
+      "pct": 71.69,
+      "description": "Performing — 12-month ECL",
+      "eclRate": 1
+    },
+    "stage2": {
+      "count": 62238,
+      "pct": 20.24,
+      "description": "Significant Increase in Credit Risk — lifetime ECL",
+      "eclRate": 5
+    },
+    "stage3": {
+      "count": 24825,
+      "pct": 8.07,
+      "description": "Credit-Impaired — lifetime ECL",
+      "eclRate": 45
+    }
+  }
+}
