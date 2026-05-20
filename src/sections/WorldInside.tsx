@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
+import { toast } from 'sonner';
 import {
   type Application,
   type SystemUser,
@@ -17,6 +18,7 @@ interface WorldInsideProps {
   applications: Application[];
   currentUser: SystemUser;
   onManualReviewDecision: (appId: string, decision: 'APPROVED' | 'REJECTED', notes: string) => void;
+  onVoidApplication: (appId: string, reason: string) => void;
 }
 
 type Filter = 'ALL' | 'APPROVED' | 'MANUAL_REVIEW' | 'REJECTED';
@@ -28,6 +30,7 @@ const ACTION_COLOR: Record<string, string> = {
   APPROVED: '#10B981',
   REJECTED: '#EF4444',
   VIEWED: '#94A3B8',
+  VOIDED: '#EF4444',
 };
 
 const STAGE_COLOR: Record<number, string> = {
@@ -40,21 +43,39 @@ function lastAction(app: Application): AuditEntry | undefined {
   return app.statusHistory[app.statusHistory.length - 1];
 }
 
-export default function WorldInside({ isActive, applications, currentUser, onManualReviewDecision }: WorldInsideProps) {
+const csvCell = (v: string | number) => {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+export default function WorldInside({ isActive, applications, currentUser, onManualReviewDecision, onVoidApplication }: WorldInsideProps) {
   const hasAnimated = useRef(false);
   const [filter, setFilter] = useState<Filter>('ALL');
+  const [query, setQuery] = useState('');
   const [selectedRow, setSelectedRow] = useState<Application | null>(null);
   const [counts, setCounts] = useState({ total:0, approved:0, manual:0, rejected:0 });
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewError, setReviewError] = useState('');
+  const [voidMode, setVoidMode] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidError, setVoidError] = useState('');
 
-  const approved = applications.filter(a => a.decision === 'APPROVED');
-  const manual = applications.filter(a => a.decision === 'MANUAL_REVIEW');
-  const rejected = applications.filter(a => a.decision === 'REJECTED');
-  const filtered = filter === 'ALL' ? applications : applications.filter(a => a.decision === filter);
+  // Voided records dikecualikan dari statistik/portofolio aktif, tapi tetap tampil di tabel (audit).
+  const active = applications.filter(a => !a.voided);
+  const approved = active.filter(a => a.decision === 'APPROVED');
+  const manual = active.filter(a => a.decision === 'MANUAL_REVIEW');
+  const rejected = active.filter(a => a.decision === 'REJECTED');
+
+  const q = query.trim().toLowerCase();
+  const tableRows = applications.filter(a => {
+    const matchStatus = filter === 'ALL' || a.decision === filter;
+    const matchQuery = !q || a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q);
+    return matchStatus && matchQuery;
+  });
 
   const totalDisbursed = approved.reduce((s, a) => s + a.loan, 0);
   const totalManualAmt = manual.reduce((s, a) => s + a.loan, 0);
+  const totalActiveLoan = active.reduce((s, a) => s + a.loan, 0);
 
   useEffect(() => {
     if (!isActive) return;
@@ -70,6 +91,9 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
   useEffect(() => {
     setReviewNotes('');
     setReviewError('');
+    setVoidMode(false);
+    setVoidReason('');
+    setVoidError('');
   }, [selectedRow?.id]);
 
   useEffect(() => {
@@ -80,11 +104,11 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
     tl.fromTo('.stat-card-anim', { opacity:0, y:30 }, { opacity:1, y:0, stagger:0.08, duration:0.4, ease:'power2.out' }, 0.3);
     tl.fromTo('.chart-wrap', { opacity:0, y:20 }, { opacity:1, y:0, stagger:0.1, duration:0.5, ease:'power2.out' }, 0.5);
     tl.fromTo('.table-wrap', { opacity:0, y:20 }, { opacity:1, y:0, duration:0.5, ease:'power2.out' }, 0.7);
-    let t = 0; const end = applications.length;
+    let t = 0; const end = Math.max(active.length, 1);
     const countTimer = setInterval(() => {
       t += 1;
       setCounts({
-        total: Math.min(t, end),
+        total: Math.min(t, active.length),
         approved: Math.min(Math.ceil(t * approved.length / end), approved.length),
         manual: Math.min(Math.ceil(t * manual.length / end), manual.length),
         rejected: Math.min(Math.ceil(t * rejected.length / end), rejected.length),
@@ -99,14 +123,14 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
     { name: 'Manual Review', value: manual.length, color: '#F59E0B' },
     { name: 'Rejected', value: rejected.length, color: '#EF4444' },
   ];
-  const barData = applications.map(a => ({
+  const barData = active.map(a => ({
     name: a.name.split(' ')[0],
     amount: Math.round(a.loan / 1_000_000),
     fill: a.decision === 'APPROVED' ? '#10B981' : a.decision === 'MANUAL_REVIEW' ? '#F59E0B' : '#EF4444',
   }));
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (!active || !payload?.length) return null;
+  const CustomTooltip = ({ active: act, payload }: any) => {
+    if (!act || !payload?.length) return null;
     return (
       <div className="glass-card-static px-3 py-2 rounded-lg text-xs">
         <div className="text-[var(--app-text-muted)]">{payload[0].name}</div>
@@ -115,7 +139,8 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
     );
   };
 
-  const canReview = currentUser.role === 'CREDIT_ANALYST' && selectedRow?.decision === 'MANUAL_REVIEW';
+  const canReview = currentUser.role === 'CREDIT_ANALYST' && selectedRow?.decision === 'MANUAL_REVIEW' && !selectedRow?.voided;
+  const canVoid = currentUser.role === 'CREDIT_ANALYST' && !!selectedRow && !selectedRow.voided;
 
   const submitDecision = (decision: 'APPROVED' | 'REJECTED') => {
     if (!selectedRow) return;
@@ -128,15 +153,50 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
     setReviewError('');
   };
 
+  const submitVoid = () => {
+    if (!selectedRow) return;
+    if (voidReason.trim().length < 8) {
+      setVoidError('Alasan void minimum 8 karakter (audit requirement)');
+      return;
+    }
+    onVoidApplication(selectedRow.id, voidReason.trim());
+    setVoidMode(false);
+    setVoidReason('');
+    setVoidError('');
+  };
+
+  const exportCSV = () => {
+    const headers = ['ID','Nama','Pinjaman','Pendapatan','DTI %','Risk Score','Decision','ECL Stage','Voided','Created By','Created At','Last Action'];
+    const rows = applications.map(a => {
+      const last = lastAction(a);
+      return [
+        a.id, a.name, a.loan, a.income,
+        ((a.dti ?? 0) * 100).toFixed(1), (a.riskScore ?? 0).toFixed(1),
+        a.decision ?? '', a.eclStage ? `S${a.eclStage}` : '',
+        a.voided ? 'YES' : 'NO',
+        a.createdBy, a.createdAt, last ? `${last.action} @ ${last.at}` : '',
+      ];
+    });
+    const csv = [headers, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `portfolio-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success(`CSV diunduh (${applications.length} baris)`);
+  };
+
   return (
     <div className="w-screen h-screen relative overflow-hidden" style={{ paddingTop:'64px', background:'var(--cover-gradient)' }}>
       <div className="grid-overlay absolute inset-0 opacity-40"/>
-      <div className="relative z-10 h-full flex flex-col px-16 py-6 overflow-y-auto gap-5">
+      <div className="relative z-10 h-full px-6 md:px-16 py-6 overflow-y-auto space-y-5">
 
         {/* Header */}
-        <div className="dash-header flex items-center justify-between" style={{ opacity:0 }}>
+        <div className="dash-header flex flex-wrap items-center justify-between gap-3" style={{ opacity:0 }}>
           <div>
-            <div className="flex items-center gap-3 mb-1">
+            <div className="flex items-center gap-3 mb-1 flex-wrap">
               <span className="ic-badge">IC-4: Dual Control</span>
               <span className="ic-badge">IC-5: Audit Trail</span>
               <span className="ic-badge">IC-7: Reconciliation</span>
@@ -145,7 +205,7 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
             <p className="text-xs text-[var(--app-text-dim)] mt-1">
               Active session: <span className="font-mono text-[var(--accent-soft)]">{currentUser.id}</span> · {ROLE_LABELS[currentUser.role]} —{' '}
               {currentUser.role === 'CREDIT_ANALYST'
-                ? 'Anda dapat approve/reject manual review cases.'
+                ? 'Anda dapat approve/reject & void cases.'
                 : 'Read-only access; switch ke Credit Analyst untuk review cases.'}
             </p>
           </div>
@@ -153,9 +213,9 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
         </div>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label:'Total Applications', val: counts.total, sub: formatIDR(applications.reduce((s,a)=>s+a.loan,0)), color:'#6366F1' },
+            { label:'Total Applications', val: counts.total, sub: formatIDR(totalActiveLoan), color:'#6366F1' },
             { label:'Approved', val: counts.approved, sub: formatIDR(totalDisbursed), color:'#10B981' },
             { label:'Manual Review', val: counts.manual, sub: formatIDR(totalManualAmt), color:'#F59E0B' },
             { label:'Rejected', val: counts.rejected, sub: formatIDR(rejected.reduce((s,a)=>s+a.loan,0)), color:'#EF4444' },
@@ -169,8 +229,8 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
         </div>
 
         {/* Charts */}
-        <div className="grid grid-cols-5 gap-4">
-          <div className="chart-wrap col-span-2 glass-card-static rounded-2xl p-5" style={{ opacity:0 }}>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="chart-wrap md:col-span-2 glass-card-static rounded-2xl p-5" style={{ opacity:0 }}>
             <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-wider mb-4">Status Distribution</div>
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
@@ -180,7 +240,7 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
                 <Tooltip content={<CustomTooltip/>}/>
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex justify-center gap-4 mt-2">
+            <div className="flex justify-center gap-4 mt-2 flex-wrap">
               {pieData.map(p => (
                 <div key={p.name} className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full" style={{ background:p.color }}/>
@@ -189,7 +249,7 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
               ))}
             </div>
           </div>
-          <div className="chart-wrap col-span-3 glass-card-static rounded-2xl p-5" style={{ opacity:0 }}>
+          <div className="chart-wrap md:col-span-3 glass-card-static rounded-2xl p-5" style={{ opacity:0 }}>
             <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-wider mb-4">Loan Amount by Applicant (juta IDR)</div>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={barData} barSize={20}>
@@ -207,9 +267,16 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
 
         {/* Table */}
         <div className="table-wrap glass-card-static rounded-2xl overflow-hidden" style={{ opacity:0 }}>
-          <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-white/5">
             <span className="text-sm font-semibold text-[var(--app-text-strong)]">All Applications · IC-5 Audit Trail</span>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="🔍 Cari nama / ID…"
+                className="fintech-input"
+                style={{ width: 180, padding: '6px 12px', fontSize: 12 }}
+              />
               {(['ALL','APPROVED','MANUAL_REVIEW','REJECTED'] as Filter[]).map(f => (
                 <button key={f} onClick={() => setFilter(f)}
                   className="text-xs px-3 py-1.5 rounded-lg cursor-pointer border-none transition-all"
@@ -217,6 +284,11 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
                   {f.replace('_',' ')}
                 </button>
               ))}
+              <button onClick={exportCSV}
+                className="text-xs px-3 py-1.5 rounded-lg cursor-pointer border-none transition-all"
+                style={{ background:'rgba(16,185,129,0.12)', color:'#10B981', border:'1px solid rgba(16,185,129,0.3)' }}>
+                ⬇ CSV
+              </button>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -225,16 +297,18 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
                 <tr><th>#</th><th>ID</th><th>Nama</th><th>Pinjaman</th><th>DTI</th><th>Risk Score</th><th>Status</th><th>Stage</th><th>Created By</th><th>Last Action</th></tr>
               </thead>
               <tbody>
-                {filtered.map((a, i) => {
+                {tableRows.map((a, i) => {
                   const sc = a.riskScore ?? 0;
                   const scoreColor = sc >= 60 ? '#10B981' : sc >= 40 ? '#F59E0B' : '#EF4444';
                   const last = lastAction(a);
                   const stageColor = a.eclStage ? STAGE_COLOR[a.eclStage] : '#94A3B8';
                   return (
-                    <tr key={a.id} onClick={() => setSelectedRow(a)} style={{ cursor: 'pointer' }}>
+                    <tr key={a.id} onClick={() => setSelectedRow(a)} style={{ cursor: 'pointer', opacity: a.voided ? 0.5 : 1 }}>
                       <td className="text-[var(--app-text-dim)]">{i+1}</td>
                       <td><span className="font-mono text-xs text-[#6366F1]">{a.id}</span></td>
-                      <td className="font-medium text-[var(--app-text-strong)]">{a.name}</td>
+                      <td className="font-medium text-[var(--app-text-strong)]">
+                        <span style={{ textDecoration: a.voided ? 'line-through' : 'none' }}>{a.name}</span>
+                      </td>
                       <td>{formatIDR(a.loan)}</td>
                       <td><span style={{ color: (a.dti??0) > 0.5 ? '#F59E0B' : '#94A3B8' }}>{((a.dti??0)*100).toFixed(1)}%</span></td>
                       <td>
@@ -246,12 +320,16 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
                         </div>
                       </td>
                       <td>
-                        <span className={a.decision === 'APPROVED' ? 'badge-approved' : a.decision === 'MANUAL_REVIEW' ? 'badge-manual' : 'badge-rejected'}>
-                          {a.decision?.replace('_',' ')}
-                        </span>
+                        {a.voided ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background:'rgba(239,68,68,0.15)', color:'#EF4444', border:'1px solid rgba(239,68,68,0.5)' }}>VOIDED</span>
+                        ) : (
+                          <span className={a.decision === 'APPROVED' ? 'badge-approved' : a.decision === 'MANUAL_REVIEW' ? 'badge-manual' : 'badge-rejected'}>
+                            {a.decision?.replace('_',' ')}
+                          </span>
+                        )}
                       </td>
                       <td>
-                        {a.eclStage ? (
+                        {a.eclStage && !a.voided ? (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-md"
                             style={{ background: `${stageColor}1f`, color: stageColor, border: `1px solid ${stageColor}55` }}>
                             S{a.eclStage}
@@ -281,6 +359,9 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
                     </tr>
                   );
                 })}
+                {tableRows.length === 0 && (
+                  <tr><td colSpan={10} className="text-center text-xs text-[var(--app-text-dim)] py-8">Tidak ada aplikasi yang cocok.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -289,29 +370,40 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
 
       {/* Row detail modal */}
       {selectedRow && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background:'var(--modal-backdrop)', backdropFilter:'blur(8px)' }} onClick={() => setSelectedRow(null)}>
-          <div className="glass-card-static rounded-2xl p-7 w-[640px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6" style={{ background:'var(--modal-backdrop)', backdropFilter:'blur(8px)' }} onClick={() => setSelectedRow(null)}>
+          <div className="glass-card-static rounded-2xl p-7 w-full max-w-[640px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-start justify-between mb-5">
               <div>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="font-mono text-xs text-[#6366F1]">{selectedRow.id}</span>
-                  <span className={selectedRow.decision === 'APPROVED' ? 'badge-approved' : selectedRow.decision === 'MANUAL_REVIEW' ? 'badge-manual' : 'badge-rejected'}>
-                    {selectedRow.decision?.replace('_',' ')}
-                  </span>
-                  {selectedRow.eclStage && (
+                  {selectedRow.voided ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background:'rgba(239,68,68,0.15)', color:'#EF4444', border:'1px solid rgba(239,68,68,0.5)' }}>VOIDED</span>
+                  ) : (
+                    <span className={selectedRow.decision === 'APPROVED' ? 'badge-approved' : selectedRow.decision === 'MANUAL_REVIEW' ? 'badge-manual' : 'badge-rejected'}>
+                      {selectedRow.decision?.replace('_',' ')}
+                    </span>
+                  )}
+                  {selectedRow.eclStage && !selectedRow.voided && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-md"
                       style={{ background: `${STAGE_COLOR[selectedRow.eclStage]}1f`, color: STAGE_COLOR[selectedRow.eclStage], border: `1px solid ${STAGE_COLOR[selectedRow.eclStage]}55` }}>
                       PSAK 71 — Stage {selectedRow.eclStage}
                     </span>
                   )}
                 </div>
-                <h3 className="text-lg font-bold text-[var(--app-text-strong)]">{selectedRow.name}</h3>
+                <h3 className="text-lg font-bold text-[var(--app-text-strong)]" style={{ textDecoration: selectedRow.voided ? 'line-through' : 'none' }}>{selectedRow.name}</h3>
               </div>
               <button onClick={() => setSelectedRow(null)} className="text-[var(--app-text-dim)] hover:text-[var(--app-text)] cursor-pointer bg-transparent border-none text-xl">×</button>
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            {selectedRow.voided && (
+              <div className="mb-4 px-4 py-3 rounded-xl text-[11px]" style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.3)' }}>
+                <span className="font-semibold text-[#EF4444]">Record di-VOID (tidak dihapus — dipertahankan untuk audit).</span>
+                {selectedRow.voidReason && <span className="text-[var(--app-text-muted)]"> Alasan: "{selectedRow.voidReason}"</span>}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               {/* Left: facts */}
               <div>
                 <div className="flex items-center justify-center mb-4">
@@ -384,7 +476,7 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
             </div>
 
             {/* Approve / Reject — IC-4 Dual Control */}
-            {selectedRow.decision === 'MANUAL_REVIEW' && (
+            {selectedRow.decision === 'MANUAL_REVIEW' && !selectedRow.voided && (
               <div className="mt-5 pt-4 border-t border-white/10">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="ic-badge">IC-4: Dual Control</span>
@@ -421,6 +513,43 @@ export default function WorldInside({ isActive, applications, currentUser, onMan
                     <span className="text-[var(--app-text-muted)]">
                       Role aktif kamu adalah <strong>{ROLE_LABELS[currentUser.role]}</strong>. Switch ke <strong>Credit Analyst</strong> dari navbar untuk approve/reject case ini.
                     </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Void / Batalkan — CRUD + IC-5 (record dipertahankan untuk audit) */}
+            {canVoid && (
+              <div className="mt-4 pt-4 border-t border-white/10">
+                {!voidMode ? (
+                  <button onClick={() => setVoidMode(true)}
+                    className="text-xs px-4 py-2 rounded-lg cursor-pointer border-none"
+                    style={{ background:'rgba(239,68,68,0.10)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.3)' }}>
+                    🗑 Void Record (batalkan dengan alasan)
+                  </button>
+                ) : (
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-[var(--app-text-dim)] block mb-1">Alasan Void (wajib, min. 8 karakter — masuk audit trail)</label>
+                    <textarea
+                      className="fintech-input"
+                      rows={2}
+                      placeholder="cth. Duplikat dari C012 / data nasabah salah input, dibatalkan"
+                      value={voidReason}
+                      onChange={e => { setVoidReason(e.target.value); setVoidError(''); }}
+                    />
+                    {voidError && <p className="text-xs text-[#EF4444] mt-1">{voidError}</p>}
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={submitVoid}
+                        className="flex-1 py-2.5 text-xs font-bold rounded-xl cursor-pointer border-none"
+                        style={{ background:'rgba(239,68,68,0.15)', color:'#EF4444', border:'1px solid rgba(239,68,68,0.4)' }}>
+                        Konfirmasi Void
+                      </button>
+                      <button onClick={() => { setVoidMode(false); setVoidReason(''); setVoidError(''); }}
+                        className="flex-1 py-2.5 text-xs font-medium rounded-xl cursor-pointer border-none"
+                        style={{ background:'var(--overlay-bg-soft)', color:'var(--app-text-muted)' }}>
+                        Batal
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

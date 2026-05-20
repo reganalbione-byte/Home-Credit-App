@@ -14,9 +14,30 @@ import {
   USERS,
   buildApplicationFromForm,
   manualReviewDecision,
+  voidApplication,
   type Application,
   type SystemUser,
 } from './lib/data';
+import {
+  loadApplications,
+  seedIfEmpty,
+  insertApplication,
+  upsertApplication,
+  resetApplications,
+  subscribeApplications,
+} from './lib/cloudStore';
+import { isCloudEnabled } from './lib/supabase';
+import { Toaster } from './components/ui/sonner';
+import { toast } from 'sonner';
+
+// ID nasabah berikutnya = C + (angka id terbesar + 1), zero-padded 3 digit.
+function nextAppId(apps: Application[]): string {
+  const max = apps.reduce((m, a) => {
+    const n = parseInt(a.id.replace(/\D/g, ''), 10);
+    return Number.isFinite(n) ? Math.max(m, n) : m;
+  }, 0);
+  return `C${String(max + 1).padStart(3, '0')}`;
+}
 
 const PAGES = ['cover', 'form', 'result', 'portfolio', 'report'];
 
@@ -25,6 +46,7 @@ type Theme = 'dark' | 'light';
 function App() {
   const [currentPage, setCurrentPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [cloudLoaded, setCloudLoaded] = useState(!isCloudEnabled);
   const [applications, setApplications] = useState<Application[]>(INITIAL_APPLICATIONS);
   const [lastResult, setLastResult] = useState<any>(null);
   const [theme, setTheme] = useState<Theme>(() => {
@@ -47,6 +69,19 @@ function App() {
   useEffect(() => {
     localStorage.setItem('currentUserId', currentUserId);
   }, [currentUserId]);
+
+  // Muat data dari cloud (Supabase) + langganan perubahan realtime, sehingga data
+  // yang diinput di satu perangkat langsung muncul di perangkat lain (mis. laptop dosen).
+  // Kalau env Supabase belum di-set, semua fungsi ini no-op → app pakai data in-memory.
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      loadApplications().then(apps => { if (alive) { setApplications(apps); setCloudLoaded(true); } });
+    };
+    seedIfEmpty().then(refresh);
+    const unsubscribe = subscribeApplications(refresh);
+    return () => { alive = false; unsubscribe(); };
+  }, []);
 
   const toggleTheme = useCallback(() => {
     setTheme(t => (t === 'dark' ? 'light' : 'dark'));
@@ -71,23 +106,9 @@ function App() {
     }
   }, [currentPage]);
 
-  // Wheel navigation
-  useEffect(() => {
-    let acc = 0;
-    const threshold = 80;
-    let resetTimer: ReturnType<typeof setTimeout>;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      if (isTransitioning.current) return;
-      acc += Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-      if (acc > threshold) { acc = 0; goToPage(Math.min(currentPage + 1, PAGES.length - 1)); }
-      else if (acc < -threshold) { acc = 0; goToPage(Math.max(currentPage - 1, 0)); }
-      clearTimeout(resetTimer);
-      resetTimer = setTimeout(() => { acc = 0; }, 200);
-    };
-    window.addEventListener('wheel', onWheel, { passive: false });
-    return () => { window.removeEventListener('wheel', onWheel); clearTimeout(resetTimer); };
-  }, [currentPage, goToPage]);
+  // Scroll wheel sengaja TIDAK dipakai untuk pindah halaman.
+  // Wheel = scroll konten atas/bawah (native) di dalam tiap section (overflow-y-auto).
+  // Pindah halaman lewat klik: nav bar, dot indicator, tombol di section, panah kiri/kanan.
 
   // Touch
   useEffect(() => {
@@ -110,18 +131,20 @@ function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTransitioning.current) return;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goToPage(Math.min(currentPage + 1, PAGES.length - 1));
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goToPage(Math.max(currentPage - 1, 0));
+      // Hanya panah kiri/kanan untuk pindah halaman. Panah atas/bawah dibiarkan
+      // untuk scroll konten secara native.
+      if (e.key === 'ArrowRight') goToPage(Math.min(currentPage + 1, PAGES.length - 1));
+      else if (e.key === 'ArrowLeft') goToPage(Math.max(currentPage - 1, 0));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [currentPage, goToPage]);
 
   const handleResult = useCallback((result: any) => { setLastResult(result); }, []);
-  const handleAddToPortfolio = useCallback(() => {
+  const handleAddToPortfolio = useCallback(async () => {
     if (!lastResult) return;
     const newApp = buildApplicationFromForm({
-      id: `C${String(applications.length + 1).padStart(3, '0')}`,
+      id: nextAppId(applications),
       name: lastResult.name,
       income: lastResult.income,
       loan: lastResult.loan,
@@ -131,17 +154,48 @@ function App() {
       date: lastResult.date,
       createdBy: currentUserId,
     });
-    setApplications(prev => [...prev, newApp]);
-  }, [lastResult, applications.length, currentUserId]);
+    setApplications(prev => [...prev, newApp]);  // optimistic — langsung tampil
+    const res = await insertApplication(newApp); // simpan ke cloud → sync realtime
+    if (res.ok) {
+      toast.success(`${newApp.name} ditambahkan ke portfolio (${newApp.id})`);
+    } else {
+      toast.error('Gagal menyimpan ke cloud — memuat ulang data.');
+      setApplications(await loadApplications());  // rollback ke kondisi server
+    }
+  }, [lastResult, applications, currentUserId]);
 
   const handleManualReviewDecision = useCallback(
-    (appId: string, decision: 'APPROVED' | 'REJECTED', notes: string) => {
-      setApplications(prev =>
-        prev.map(a => (a.id === appId ? manualReviewDecision(a, decision, currentUserId, notes) : a))
-      );
+    async (appId: string, decision: 'APPROVED' | 'REJECTED', notes: string) => {
+      const target = applications.find(a => a.id === appId);
+      if (!target) return;
+      const updated = manualReviewDecision(target, decision, currentUserId, notes);
+      setApplications(prev => prev.map(a => (a.id === appId ? updated : a)));  // optimistic
+      const res = await upsertApplication(updated);                            // simpan ke cloud
+      if (res.ok) toast.success(`${updated.name}: ${decision === 'APPROVED' ? 'disetujui' : 'ditolak'}`);
+      else toast.error('Gagal menyimpan keputusan ke cloud.');
     },
-    [currentUserId]
+    [applications, currentUserId]
   );
+
+  const handleVoidApplication = useCallback(
+    async (appId: string, reason: string) => {
+      const target = applications.find(a => a.id === appId);
+      if (!target) return;
+      const updated = voidApplication(target, currentUserId, reason);
+      setApplications(prev => prev.map(a => (a.id === appId ? updated : a)));  // optimistic
+      const res = await upsertApplication(updated);
+      if (res.ok) toast.success(`${updated.name} (${updated.id}) di-void`);
+      else toast.error('Gagal void ke cloud.');
+    },
+    [applications, currentUserId]
+  );
+
+  const handleResetData = useCallback(async () => {
+    setApplications(INITIAL_APPLICATIONS.map(a => ({ ...a })));  // optimistic / mode lokal
+    const res = await resetApplications();                       // cloud: hapus + seed ulang
+    if (res.ok) toast.success('Data direset ke 10 nasabah awal.');
+    else toast.error('Reset cloud gagal — cek koneksi Supabase.');
+  }, []);
 
   const pageStyle = (i: number) => ({
     transform: i !== 0 ? 'translateX(100vw)' : undefined,
@@ -151,9 +205,18 @@ function App() {
   });
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden" style={{ background: 'var(--app-bg)' }}>
+    <div className="relative w-screen h-screen overflow-hidden app-shell" style={{ background: 'var(--app-bg)' }}>
       <ParticleCanvas />
       <CustomCursor />
+      <Toaster theme={theme} position="top-center" richColors closeButton />
+      {!isLoading && isCloudEnabled && !cloudLoaded && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center" style={{ background: 'var(--app-bg)' }}>
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 rounded-full border-2 border-[#6366F1]/40 border-t-transparent animate-spin" />
+            <span className="text-sm" style={{ color: 'var(--app-text-dim)' }}>Menyinkronkan data dari cloud…</span>
+          </div>
+        </div>
+      )}
       {isLoading && <LoadingScreen onComplete={() => setIsLoading(false)} />}
       {!isLoading && (
         <Navigation
@@ -169,9 +232,9 @@ function App() {
       <div className="relative w-full h-full">
         {[CoverSpread, FeaturedArtifacts, HistorySpread, WorldInside, VisitExplore].map((_Component, i) => (
           <div key={i} ref={el => { pageRefs.current[i] = el; }}
-            className="absolute top-0 left-0 w-full h-full"
+            className={`absolute top-0 left-0 w-full h-full ${currentPage === i ? 'page-active' : 'page-inactive'}`}
             style={pageStyle(i)}>
-            {i === 0 && <CoverSpread isActive={!isLoading && currentPage === 0} onEnterGallery={() => goToPage(1)} />}
+            {i === 0 && <CoverSpread isActive={!isLoading && currentPage === 0} onEnterGallery={() => goToPage(1)} onResetData={handleResetData} applications={applications} />}
             {i === 1 && (
               <FeaturedArtifacts
                 isActive={!isLoading && currentPage === 1}
@@ -195,6 +258,7 @@ function App() {
                 applications={applications}
                 currentUser={currentUser}
                 onManualReviewDecision={handleManualReviewDecision}
+                onVoidApplication={handleVoidApplication}
               />
             )}
             {i === 4 && (

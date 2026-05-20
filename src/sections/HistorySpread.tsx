@@ -28,10 +28,14 @@ export default function HistorySpread({ isActive, result, onNewApplication, onAd
   };
   const cfg = decisionConfig[decision as keyof typeof decisionConfig];
 
+  // Reset begitu result berganti (jangan di-gate dengan isActive — result sering
+  // berubah saat slide transisi masih jalan & isActive belum true, sehingga guard
+  // hasAnimated/displayScore/added jadi nyangkut di nasabah sebelumnya).
   useEffect(() => {
-    if (!isActive || !result) return;
+    if (!result) return;
     hasAnimated.current = false;
-    setDisplayScore(0); setAdded(false);
+    setDisplayScore(0);
+    setAdded(false);
   }, [result]);
 
   useEffect(() => {
@@ -75,7 +79,7 @@ export default function HistorySpread({ isActive, result, onNewApplication, onAd
   return (
     <div className="w-screen h-screen relative overflow-hidden" style={{ paddingTop:'64px', background:'var(--cover-gradient)' }}>
       <div className="grid-overlay absolute inset-0 opacity-40" />
-      <div className="relative z-10 h-full flex gap-8 px-16 py-8 overflow-y-auto">
+      <div className="relative z-10 h-full flex flex-col lg:flex-row gap-8 px-6 md:px-16 py-8 overflow-y-auto">
 
         {/* Left: score + factors */}
         <div className="flex-1 flex flex-col gap-6">
@@ -115,7 +119,7 @@ export default function HistorySpread({ isActive, result, onNewApplication, onAd
           </div>
 
           {/* Factor breakdown */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               { label: 'External Score', weight: '50%', raw: result.extScore, normalized: Math.round(result.extScore * 100), color: '#6366F1', contribution: result.extScore * 0.5 * 100 },
               { label: 'DTI Inverted', weight: '30%', raw: `${(result.dti * 100).toFixed(1)}%`, normalized: Math.max(0, Math.round((1 - Math.min(result.dti, 1)) * 100)), color: '#3B82F6', contribution: Math.max(0, (1 - Math.min(result.dti, 1))) * 0.3 * 100 },
@@ -137,7 +141,7 @@ export default function HistorySpread({ isActive, result, onNewApplication, onAd
         </div>
 
         {/* Right: detail card */}
-        <div className="detail-card w-72 flex flex-col gap-4" style={{ opacity:0 }}>
+        <div className="detail-card w-full lg:w-72 flex flex-col gap-4" style={{ opacity:0 }}>
           <div className="glass-card-static rounded-2xl p-6">
             <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-wider mb-4">Application Detail</div>
             {[

@@ -23,13 +23,23 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   AUDITOR:        'Auditor',
 };
 
+// PIN demo per role (mock auth untuk memperkuat Segregation of Duties).
+// Bukan keamanan sungguhan — hanya simulasi kontrol akses untuk presentasi.
+export const ROLE_PINS: Record<UserRole, string> = {
+  LOAN_OFFICER:   '1111',
+  CREDIT_ANALYST: '2222',
+  FINANCE:        '3333',
+  AUDITOR:        '4444',
+};
+
 export type AuditAction =
   | 'CREATED'
   | 'AUTO_DECISION'
   | 'QUEUED_FOR_REVIEW'
   | 'APPROVED'
   | 'REJECTED'
-  | 'VIEWED';
+  | 'VIEWED'
+  | 'VOIDED';
 
 export interface AuditEntry {
   at: string;
@@ -64,6 +74,9 @@ export interface Application {
   statusHistory: AuditEntry[];
   // --- PSAK 71 ECL Staging ---
   eclStage?: ECLStage;
+  // --- Void (soft-delete) — record dipertahankan untuk audit, tidak dihapus ---
+  voided?: boolean;
+  voidReason?: string;
 }
 
 export function calculateRiskScore(income: number, loan: number, empYears: number, extScore: number) {
@@ -247,6 +260,22 @@ export function manualReviewDecision(
   };
   next.eclStage = assignECLStage(next);
   return next;
+}
+
+// Void = soft-delete. Record tetap disimpan (audit trail utuh), tapi dikecualikan
+// dari portfolio aktif, statistik, dan financial report. Prinsip akuntansi:
+// "void, jangan hapus" — jejak transaksi tidak boleh hilang.
+export function voidApplication(app: Application, byUserId: string, reason: string): Application {
+  const now = new Date().toISOString();
+  return {
+    ...app,
+    voided: true,
+    voidReason: reason,
+    statusHistory: [
+      ...app.statusHistory,
+      { at: now, by: byUserId, action: 'VOIDED', reason },
+    ],
+  };
 }
 
 export function formatIDR(amount: number): string {

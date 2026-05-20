@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { USERS, ROLE_LABELS, type SystemUser } from '../lib/data';
+import { USERS, ROLE_LABELS, ROLE_PINS, type SystemUser } from '../lib/data';
+import { isCloudEnabled } from '../lib/supabase';
+import { subscribePresence } from '../lib/cloudStore';
 
 interface NavigationProps {
   activePage: number;
@@ -28,8 +30,27 @@ const ROLE_COLOR: Record<string, string> = {
 export default function Navigation({ activePage, onNavigate, theme, onToggleTheme, currentUser, onChangeUser }: NavigationProps) {
   const [visible, setVisible] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const [pendingUser, setPendingUser] = useState<SystemUser | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [onlineCount, setOnlineCount] = useState(0);
   const navRef = useRef<HTMLElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isCloudEnabled) return;
+    return subscribePresence(setOnlineCount);
+  }, []);
+
+  const confirmPin = () => {
+    if (!pendingUser) return;
+    if (pinInput === ROLE_PINS[pendingUser.role]) {
+      onChangeUser(pendingUser.id);
+      setPendingUser(null); setPinInput(''); setPinError('');
+    } else {
+      setPinError('PIN salah. Coba lagi.');
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 2400);
@@ -96,9 +117,15 @@ export default function Navigation({ activePage, onNavigate, theme, onToggleThem
 
       {/* Right cluster */}
       <div className="flex items-center gap-3 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#10B981' }} />
-          <span className="text-xs tracking-wide" style={{ color: 'var(--app-text-dim)' }}>LIVE SYSTEM</span>
+        <div className="flex items-center gap-2"
+          title={isCloudEnabled
+            ? 'Tersambung ke Supabase — data dibagikan antar perangkat & realtime'
+            : 'Mode lokal — data tidak tersimpan/tersinkron. Set env Supabase lalu restart.'}>
+          <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: isCloudEnabled ? '#10B981' : '#F59E0B' }} />
+          <span className="text-xs tracking-wide" style={{ color: 'var(--app-text-dim)' }}>{isCloudEnabled ? 'CLOUD SYNC' : 'LOCAL ONLY'}</span>
+          {isCloudEnabled && onlineCount > 0 && (
+            <span className="text-xs tracking-wide" style={{ color: 'var(--accent-soft)' }}>· 👁 {onlineCount} online</span>
+          )}
         </div>
 
         {/* Role / User switcher — IC-4 + IC-5 (SoD) */}
@@ -143,7 +170,11 @@ export default function Navigation({ activePage, onNavigate, theme, onToggleThem
                 {userList.map(u => {
                   const active = u.id === currentUser.id;
                   return (
-                    <button key={u.id} onClick={() => { onChangeUser(u.id); setUserOpen(false); }}
+                    <button key={u.id} onClick={() => {
+                        setUserOpen(false);
+                        if (u.id === currentUser.id) return;
+                        setPendingUser(u); setPinInput(''); setPinError('');
+                      }}
                       role="option"
                       aria-selected={active}
                       className="w-full text-left px-4 py-2.5 flex items-center gap-3 cursor-pointer border-none"
@@ -205,6 +236,34 @@ export default function Navigation({ activePage, onNavigate, theme, onToggleThem
             }} />
         </button>
       </div>
+
+      {/* PIN gate — IC-4 Segregation of Duties: ganti role butuh PIN */}
+      {pendingUser && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6"
+          style={{ background:'rgba(2,6,16,0.7)', backdropFilter:'blur(4px)' }}
+          onClick={() => setPendingUser(null)}>
+          <div className="glass-card-static rounded-2xl p-7 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: ROLE_COLOR[pendingUser.role] }}>{pendingUser.initials}</span>
+              <div>
+                <div className="text-sm font-bold" style={{ color:'var(--app-text)' }}>Switch ke {pendingUser.name}</div>
+                <div className="text-[10px] uppercase tracking-wider" style={{ color: ROLE_COLOR[pendingUser.role] }}>{ROLE_LABELS[pendingUser.role]} · {pendingUser.id}</div>
+              </div>
+            </div>
+            <label className="text-[10px] uppercase tracking-widest block mb-1" style={{ color:'var(--app-text-dim)' }}>Masukkan PIN role (Segregation of Duties)</label>
+            <input autoFocus type="password" inputMode="numeric" maxLength={8} value={pinInput}
+              onChange={e => { setPinInput(e.target.value); setPinError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') confirmPin(); }}
+              className="fintech-input" placeholder="••••" />
+            {pinError && <p className="text-xs mt-1" style={{ color:'#EF4444' }}>{pinError}</p>}
+            <p className="text-[10px] mt-2" style={{ color:'var(--app-text-dim)' }}>PIN demo: <span className="font-mono">{ROLE_PINS[pendingUser.role]}</span> (mode presentasi)</p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={confirmPin} className="btn-gradient flex-1 py-2.5 text-xs font-semibold">Konfirmasi</button>
+              <button onClick={() => setPendingUser(null)} className="flex-1 py-2.5 text-xs font-medium rounded-xl cursor-pointer border-none" style={{ background:'var(--overlay-bg-soft)', color:'var(--app-text-muted)' }}>Batal</button>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

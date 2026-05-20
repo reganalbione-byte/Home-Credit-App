@@ -21,11 +21,12 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
     gsap.fromTo('.report-section', { opacity:0, y:20 }, { opacity:1, y:0, stagger:0.1, duration:0.5, ease:'power2.out', delay:0.2 });
   }, [isActive]);
 
-  const approved = applications.filter(a => a.decision === 'APPROVED');
-  const manual = applications.filter(a => a.decision === 'MANUAL_REVIEW');
-  const rejected = applications.filter(a => a.decision === 'REJECTED');
-  const totalApps = applications.length;
-  const totalAll = applications.reduce((s,a)=>s+a.loan,0);
+  const liveApps = applications.filter(a => !a.voided);  // voided dikecualikan dari laporan
+  const approved = liveApps.filter(a => a.decision === 'APPROVED');
+  const manual = liveApps.filter(a => a.decision === 'MANUAL_REVIEW');
+  const rejected = liveApps.filter(a => a.decision === 'REJECTED');
+  const totalApps = liveApps.length;
+  const totalAll = liveApps.reduce((s,a)=>s+a.loan,0);
   const totalApprovedAmt = approved.reduce((s,a)=>s+a.loan,0);
   const totalManualAmt = manual.reduce((s,a)=>s+a.loan,0);
   const totalRejectedAmt = rejected.reduce((s,a)=>s+a.loan,0);
@@ -44,7 +45,7 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
     2: kaggleStats.psak71Stages.stage2.eclRate / 100,
     3: kaggleStats.psak71Stages.stage3.eclRate / 100,
   };
-  const onBookPortfolio = applications.filter(a => a.decision !== 'REJECTED');
+  const onBookPortfolio = liveApps.filter(a => a.decision !== 'REJECTED');
   const stageGroups = {
     1: onBookPortfolio.filter(a => a.eclStage === 1),
     2: onBookPortfolio.filter(a => a.eclStage === 2),
@@ -121,6 +122,33 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
   const totalCredits = journal.reduce((s, j) => s + (j.credit?.reduce((x, c) => x + c.amount, 0) ?? 0), 0);
   const journalBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
 
+  // General Ledger + Trial Balance (derived dari journal) — melengkapi siklus akuntansi:
+  // Jurnal → Buku Besar → Neraca Saldo. Loan Receivable per-nasabah di-roll-up ke akun
+  // pengendali (control account) agar buku besar ringkas.
+  const normalizeAccount = (acc: string) =>
+    acc.startsWith('Loan Receivable') ? 'Loan Receivable (control)' : acc;
+  const ledgerMap = new Map<string, { account: string; debit: number; credit: number }>();
+  journal.forEach(j => {
+    j.debit?.forEach(d => {
+      const acc = normalizeAccount(d.account);
+      const cur = ledgerMap.get(acc) ?? { account: acc, debit: 0, credit: 0 };
+      cur.debit += d.amount; ledgerMap.set(acc, cur);
+    });
+    j.credit?.forEach(c => {
+      const acc = normalizeAccount(c.account);
+      const cur = ledgerMap.get(acc) ?? { account: acc, debit: 0, credit: 0 };
+      cur.credit += c.amount; ledgerMap.set(acc, cur);
+    });
+  });
+  const ledger = Array.from(ledgerMap.values()).sort((a, b) => a.account.localeCompare(b.account));
+  const trialBalance = ledger.map(l => {
+    const net = l.debit - l.credit;
+    return { account: l.account, debit: net > 0 ? net : 0, credit: net < 0 ? -net : 0 };
+  });
+  const tbDr = trialBalance.reduce((s, t) => s + t.debit, 0);
+  const tbCr = trialBalance.reduce((s, t) => s + t.credit, 0);
+  const tbBalanced = Math.abs(tbDr - tbCr) < 0.01;
+
   const Row = ({ label, value, indent=false, bold=false, highlight=false, color='' }: any) => (
     <div className={`flex justify-between items-center py-2 ${bold ? 'border-t border-white/10 mt-1' : 'border-b border-white/5'}`}>
       <span className={`text-sm ${indent ? 'pl-6' : ''} ${bold ? 'font-semibold text-[var(--app-text-strong)]' : 'text-[var(--app-text-muted)]'}`}>{label}</span>
@@ -145,9 +173,9 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
   }
 
   return (
-    <div className="w-screen h-screen relative overflow-hidden" style={{ paddingTop:'64px', background:'var(--cover-gradient)' }}>
+    <div className="w-screen h-screen relative overflow-hidden report-page" style={{ paddingTop:'64px', background:'var(--cover-gradient)' }}>
       <div className="grid-overlay absolute inset-0 opacity-40"/>
-      <div className="relative z-10 h-full px-16 py-6 overflow-y-auto">
+      <div className="relative z-10 h-full px-6 md:px-16 py-6 overflow-y-auto report-scroll">
 
         {/* Print header */}
         <div className="hidden print-only mb-8 text-center">
@@ -174,19 +202,19 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
             <button onClick={() => setShowJournal(s => !s)}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium cursor-pointer border-none transition-all"
               style={{ background:'rgba(99,102,241,0.10)', border:'1px solid rgba(99,102,241,0.25)', color:'#a5b4fc' }}>
-              {showJournal ? '◐ Hide' : '＋ Show'} Journal Entries
+              {showJournal ? '◐ Hide' : '＋ Show'} Journal & Ledger
             </button>
             <button onClick={() => window.print()}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium cursor-pointer border-none transition-all"
               style={{ background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', color:'#a5b4fc' }}>
-              🖨 Print Report
+              🖨 Print / Save PDF
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: Main financial statement */}
-          <div className="col-span-2 flex flex-col gap-5">
+          <div className="lg:col-span-2 flex flex-col gap-5">
             {/* Report header card */}
             <div className="report-section glass-card-static rounded-2xl p-6" style={{ opacity:0 }}>
               <div className="flex items-start justify-between mb-4 pb-4 border-b border-white/10">
@@ -307,6 +335,7 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
 
             {/* Section V — Journal Entries */}
             {showJournal && (
+              <>
               <div className="report-section glass-card-static rounded-2xl p-6" style={{ opacity:1 }}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-widest font-semibold">V. Journal Entries — Auto-Generated</div>
@@ -356,6 +385,71 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
                   <div className="flex justify-between"><span className="text-[var(--app-text-dim)]">Total Credits</span><span className="font-mono font-bold" style={{ color:'#10B981' }}>{formatIDR(totalCredits)}</span></div>
                 </div>
               </div>
+
+              {/* Section VI — General Ledger */}
+              <div className="report-section glass-card-static rounded-2xl p-6" style={{ opacity:1 }}>
+                <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-widest font-semibold mb-3">VI. General Ledger (Buku Besar)</div>
+                <p className="text-[10px] text-[var(--app-text-dim)] mb-3 italic">Saldo per akun, diagregasi dari journal entries. Loan Receivable per nasabah di-roll-up ke akun pengendali.</p>
+                <table className="w-full text-[11px] font-mono">
+                  <thead>
+                    <tr className="text-[var(--app-text-dim)]">
+                      <th className="text-left font-semibold pb-2">Akun</th>
+                      <th className="text-right font-semibold pb-2">Debit</th>
+                      <th className="text-right font-semibold pb-2">Kredit</th>
+                      <th className="text-right font-semibold pb-2">Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledger.map(l => {
+                      const bal = l.debit - l.credit;
+                      return (
+                        <tr key={l.account} className="border-t border-white/5">
+                          <td className="py-1.5 text-[var(--app-text-muted)]">{l.account}</td>
+                          <td className="py-1.5 text-right" style={{ color:'#3B82F6' }}>{l.debit ? formatIDR(l.debit) : '—'}</td>
+                          <td className="py-1.5 text-right" style={{ color:'#10B981' }}>{l.credit ? formatIDR(l.credit) : '—'}</td>
+                          <td className="py-1.5 text-right font-bold text-[var(--app-text-strong)]">{`${bal < 0 ? '(' : ''}${formatIDR(Math.abs(bal))}${bal < 0 ? ')' : ''}`}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Section VII — Trial Balance */}
+              <div className="report-section glass-card-static rounded-2xl p-6" style={{ opacity:1 }}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-widest font-semibold">VII. Trial Balance (Neraca Saldo)</div>
+                  <span className="text-[10px] font-bold px-2 py-1 rounded-md"
+                    style={{ background: tbBalanced ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', color: tbBalanced ? '#10B981' : '#EF4444' }}>
+                    {tbBalanced ? '✓ Balanced' : '⚠ Out of balance'}
+                  </span>
+                </div>
+                <table className="w-full text-[11px] font-mono">
+                  <thead>
+                    <tr className="text-[var(--app-text-dim)]">
+                      <th className="text-left font-semibold pb-2">Akun</th>
+                      <th className="text-right font-semibold pb-2">Debit</th>
+                      <th className="text-right font-semibold pb-2">Kredit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trialBalance.map(t => (
+                      <tr key={t.account} className="border-t border-white/5">
+                        <td className="py-1.5 text-[var(--app-text-muted)]">{t.account}</td>
+                        <td className="py-1.5 text-right" style={{ color:'#3B82F6' }}>{t.debit ? formatIDR(t.debit) : '—'}</td>
+                        <td className="py-1.5 text-right" style={{ color:'#10B981' }}>{t.credit ? formatIDR(t.credit) : '—'}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t-2 border-white/20 font-bold text-[var(--app-text-strong)]">
+                      <td className="py-2">TOTAL</td>
+                      <td className="py-2 text-right" style={{ color:'#3B82F6' }}>{formatIDR(tbDr)}</td>
+                      <td className="py-2 text-right" style={{ color:'#10B981' }}>{formatIDR(tbCr)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="text-[10px] text-[var(--app-text-dim)] mt-3 italic">Total Debit = Total Kredit → pembukuan seimbang (IC-7 Reconciliation).</p>
+              </div>
+              </>
             )}
           </div>
 
@@ -399,9 +493,9 @@ export default function VisitExplore({ isActive, applications, currentUser }: Vi
             <div className="report-section glass-card-static rounded-2xl p-6" style={{ opacity:0 }}>
               <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-widest mb-4 font-semibold">Portfolio Metrics</div>
               {[
-                { label:'Avg Risk Score', val: applications.length ? (applications.reduce((s,a)=>s+(a.riskScore??0),0)/applications.length).toFixed(1)+' pts' : '—' },
-                { label:'Avg Loan Size', val: applications.length ? formatIDR(Math.round(totalAll/applications.length)) : '—' },
-                { label:'Avg DTI', val: applications.length ? ((applications.reduce((s,a)=>s+(a.dti??0),0)/applications.length)*100).toFixed(1)+'%' : '—' },
+                { label:'Avg Risk Score', val: liveApps.length ? (liveApps.reduce((s,a)=>s+(a.riskScore??0),0)/liveApps.length).toFixed(1)+' pts' : '—' },
+                { label:'Avg Loan Size', val: liveApps.length ? formatIDR(Math.round(totalAll/liveApps.length)) : '—' },
+                { label:'Avg DTI', val: liveApps.length ? ((liveApps.reduce((s,a)=>s+(a.dti??0),0)/liveApps.length)*100).toFixed(1)+'%' : '—' },
                 { label:'ROI (projected)', val: totalApprovedAmt > 0 ? (netRevenue/totalApprovedAmt*100).toFixed(2)+'%' : '—' },
               ].map(m => (
                 <div key={m.label} className="flex justify-between py-2.5 border-b border-white/5">

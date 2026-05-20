@@ -231,6 +231,18 @@
     text-transform: uppercase;
   }
 
+  /* Versi badge yang bisa diklik (Dashboard → buka detail IC) */
+  .ic-badge-btn {
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  .ic-badge-btn:hover {
+    background: rgba(99,102,241,0.30);
+    border-color: rgba(99,102,241,0.65);
+    transform: translateY(-1px);
+  }
+
   /* Gradient button */
   .btn-gradient {
     background: linear-gradient(135deg, #3B82F6 0%, #6366F1 100%);
@@ -408,17 +420,53 @@
     background-size: 60px 60px;
   }
 
-  /* Print styles */
+  /* Print styles — cetak Financial Report penuh (multi-halaman), bukan terpotong 1 layar */
   @media print {
-    body { background: white !important; color: black !important; overflow: auto !important; }
+    @page { margin: 12mm; size: A4 portrait; }
+
+    html, body {
+      height: auto !important;
+      overflow: visible !important;
+      background: white !important;
+      color: black !important;
+    }
+
+    /* Matikan "shell" full-viewport + clipping yang bikin laporan terpotong 1 halaman */
+    .app-shell { position: static !important; height: auto !important; overflow: visible !important; }
+    .page-inactive { display: none !important; }
+    .page-active {
+      position: static !important;
+      height: auto !important;
+      overflow: visible !important;
+      transform: none !important;
+      opacity: 1 !important;
+    }
+    .report-page {
+      height: auto !important;
+      min-height: 0 !important;
+      overflow: visible !important;
+      padding-top: 0 !important;
+    }
+    .report-scroll { height: auto !important; overflow: visible !important; padding: 0 !important; }
+
+    /* Elemen yang tidak perlu ikut tercetak */
     .no-print { display: none !important; }
     .print-only { display: block !important; }
+    .particle-canvas, .grid-overlay { display: none !important; }
+
+    /* Reveal section yang awalnya disembunyikan animasi GSAP (opacity 0) */
+    .report-section { opacity: 1 !important; transform: none !important; }
+
+    /* Kartu rapi & tidak terpotong di tengah saat ganti halaman */
     .glass-card, .glass-card-static, .stat-card {
       background: white !important;
       border: 1px solid #e2e8f0 !important;
       box-shadow: none !important;
       backdrop-filter: none !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
+
     * { color: black !important; -webkit-text-fill-color: black !important; }
   }
 }

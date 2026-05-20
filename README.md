@@ -16,11 +16,35 @@ Sistem ini mendemonstrasikan siklus AIS klasik — **Input → Process → Outpu
 | Styling          | Tailwind CSS 3 + custom CSS (CSS variables, glassmorphism)       |
 | Charts           | Recharts (PieChart + BarChart)                                   |
 | UI primitives    | Radix UI / shadcn (terpasang, sebagian dipakai)                  |
+| Toast            | Sonner (notifikasi sukses/gagal)                                |
 | Font             | Inter + JetBrains Mono (via Google Fonts)                        |
+| Backend / Data   | Supabase (Postgres) — data bersama lintas perangkat + realtime  |
+| Testing          | Vitest (unit test scoring & PSAK 71)                            |
+| Lint             | ESLint 9 flat config (`eslint.config.js`)                       |
 | Deploy target    | Vercel                                                           |
 | Pre-compute      | Node 20+ streaming script (no extra deps)                        |
 
 ---
+
+## Fitur Tambahan (Update Terbaru)
+
+Selain alur inti, sistem sudah dilengkapi:
+
+| Fitur | Di mana | Catatan |
+| --- | --- | --- |
+| **General Ledger + Trial Balance** | Financial Report → tombol "Show Journal & Ledger" (Section VI & VII) | Melengkapi siklus akuntansi: Jurnal → Buku Besar → Neraca Saldo, dengan cek Debit = Kredit |
+| **COSO Framework + DFD** | Dashboard → tombol "COSO Framework & Alur Sistem" | Pemetaan 8 IC ke 5 komponen COSO + Data Flow Diagram |
+| **Internal Control interaktif** | Dashboard → klik tiap badge IC-1…IC-8 | Modal penjelasan + lokasi kontrol di UI |
+| **Data bersama (Supabase) + realtime** | otomatis kalau env di-set | Input di satu perangkat muncul di perangkat lain. Indikator **CLOUD SYNC / LOCAL ONLY** di navbar. Setup: lihat `SUPABASE_SETUP.md` |
+| **Presence indikator** | navbar (👁 N online) | Jumlah viewer online via Supabase presence |
+| **PIN auth per role** | ganti role di navbar | Memperkuat SoD. PIN: LO `1111`, CA `2222`, FIN `3333`, AUD `4444` |
+| **Void record (CRUD + audit)** | Portfolio modal (Credit Analyst) | "Void, jangan hapus" — record dipertahankan untuk audit, dikecualikan dari laporan |
+| **Search + Export CSV** | Portfolio | Cari nama/ID + tombol ⬇ CSV. Financial Report: 🖨 Print / Save PDF |
+| **Reset Data** | Dashboard | Kembalikan ke 10 nasabah awal (cloud + lokal) |
+| **Unit tests** | `npm test` | 10 test Vitest untuk `calculateRiskScore` & `assignECLStage` |
+| **Toast & loading state** | global | Notifikasi sukses/gagal (sonner) + overlay sinkronisasi cloud |
+
+> Penjelasan ramah + skenario demo/testing lengkap ada di **`script-plus-scenariotesting.md`**.
 
 ## Cara Kerja Sistem
 
@@ -66,11 +90,12 @@ Aplikasi adalah **single-page horizontal slide deck** dengan 5 halaman utama. St
 
 Antar halaman bisa via:
 
-- **Scroll wheel** (akumulasi delta dengan threshold 80px)
-- **Keyboard** (`ArrowRight`/`ArrowDown` next, `ArrowLeft`/`ArrowUp` prev)
-- **Touch swipe** (delta horizontal > 50px)
 - **Nav bar buttons** (top nav, 5 tab)
 - **Dot indicators** (kanan tengah, 5 dot)
+- **Keyboard** (`ArrowRight` next, `ArrowLeft` prev)
+- **Touch swipe** (delta horizontal > 50px)
+
+> **Scroll wheel tidak dipakai untuk pindah halaman** — wheel = scroll konten atas/bawah di dalam tiap halaman (tiap section punya `overflow-y-auto`). Panah atas/bawah juga dibiarkan untuk scroll.
 
 Transisi pakai GSAP `power3.inOut` 0.75s slide horizontal. `isTransitioning` ref di `App.tsx` mengunci input selama animasi berjalan — **jangan pernah `setCurrentPage` langsung**, selalu lewat `goToPage()`.
 
@@ -248,10 +273,12 @@ Buka **http://localhost:3000** (kalau port 3000 dipakai aplikasi lain, Vite otom
 | `npm run dev`     | Start Vite dev server di port 3000                  |
 | `npm run build`   | `tsc -b` (type-check) lalu `vite build` → `/dist`   |
 | `npm run preview` | Serve hasil build lokal untuk smoke test            |
-| `npm run lint`    | ESLint flat config                                  |
+| `npm run lint`    | ESLint 9 flat config (`eslint.config.js`)           |
+| `npm test`        | Jalankan unit test (Vitest) — 10 test scoring & PSAK 71 |
+| `npm run test:watch` | Vitest mode watch                                |
 | `node scripts/compute-stats.mjs` | Re-generate `kaggleStats.json` dari CSV |
 
-> **Catatan:** Belum ada test runner — `npm test` tidak tersedia.
+> **Data bersama:** set `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (lihat `SUPABASE_SETUP.md`) supaya data tersimpan & sinkron antar perangkat. Tanpa itu, app jalan mode lokal (in-memory).
 
 ---
 
@@ -356,9 +383,9 @@ Untuk presentasi atau quick walkthrough:
 4. Deploy
 ```
 
-Tidak perlu env variable, tidak perlu backend — semua state in-memory React.
+**Data bersama (Supabase):** untuk menyimpan & menyinkronkan data antar perangkat (mis. laptop dosen melihat input Anda secara realtime), set env `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` di Vercel. Langkah lengkap ada di **`SUPABASE_SETUP.md`**. Kalau env dikosongkan, app jalan **mode lokal** (state in-memory, hilang saat refresh) — tidak ada yang error, hanya tidak tersinkron.
 
-> **Heads up:** Pastikan `src/lib/kaggleStats.json` di-commit. CSV mentahnya tidak perlu di-commit (terlalu besar; tinggal di parent folder lokal saja).
+> **Heads up:** Pastikan `src/lib/kaggleStats.json` di-commit. CSV mentahnya tidak perlu di-commit (terlalu besar; tinggal di parent folder lokal saja). Jangan commit `.env` (sudah di-`.gitignore`).
 
 ---
 
@@ -371,7 +398,8 @@ Tidak perlu env variable, tidak perlu backend — semua state in-memory React.
 - `react-router` ada di `dependencies` tapi tidak dipakai — boleh dihapus.
 - Semua amount dalam **IDR** dengan format `id-ID` — gunakan helper `formatIDR` / `formatIDRShort` dari `src/lib/data.ts`, jangan bangun string locale inline.
 - Belum ada test runner.
-- Audit trail in-memory — refresh = reset (state-nya React useState, bukan persisted ke localStorage karena sudah cukup kompleks).
+- **Penyimpanan data:** kalau env Supabase di-set → data persist di cloud + sync realtime antar perangkat (lihat `SUPABASE_SETUP.md`). Kalau tidak → in-memory, refresh = reset. Tombol **Reset Data** di Dashboard mengembalikan ke 10 nasabah awal.
+- `npm run lint` kini berfungsi (ada `eslint.config.js`); beberapa aturan react-hooks v7 yang sangat ketat sengaja dilonggarkan.
 
 ---
 

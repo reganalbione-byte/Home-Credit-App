@@ -94,7 +94,7 @@ export default function FeaturedArtifacts({ isActive, onResult, onNavigateToResu
       <div className="grid-overlay absolute inset-0 opacity-40" />
       <div className="absolute top-1/3 left-1/3 w-96 h-96 rounded-full pointer-events-none" style={{ background:'var(--radial-glow-blue)' }} />
 
-      <div className="relative z-10 h-full flex flex-col px-16 py-8 overflow-y-auto">
+      <div className="relative z-10 h-full px-6 md:px-16 py-8 overflow-y-auto">
         {/* Header */}
         <div className="form-header mb-8" style={{ opacity:0 }}>
           <div className="flex items-center gap-3 mb-2">
@@ -124,7 +124,7 @@ export default function FeaturedArtifacts({ isActive, onResult, onNavigateToResu
           </div>
         )}
 
-        <div className="flex gap-8 flex-1 min-h-0">
+        <div className="flex flex-col lg:flex-row gap-8 lg:items-stretch">
           {/* Form */}
           <div className="form-card flex-1 glass-card-static p-8 rounded-2xl" style={{ opacity:0 }}>
             {loading ? (
@@ -211,7 +211,7 @@ export default function FeaturedArtifacts({ isActive, onResult, onNavigateToResu
           </div>
 
           {/* Live Preview */}
-          <div className="preview-card w-72 flex flex-col gap-4" style={{ opacity:0 }}>
+          <div className="preview-card w-full lg:w-72 flex flex-col gap-4" style={{ opacity:0 }}>
             <div className="glass-card-static p-6 rounded-2xl">
               <div className="text-xs text-[var(--app-text-dim)] uppercase tracking-wider mb-4">Live Score Preview</div>
               <div className="flex flex-col items-center mb-6">

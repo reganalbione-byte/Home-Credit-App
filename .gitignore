@@ -3,5 +3,10 @@ dist
 .DS_Store
 *.local
 
+# Env (secrets) — set di Vercel, jangan commit. .env.example tetap di-track.
+.env
+.env.*
+!.env.example
+
 # Internal context — do not push
 CLAUDE.md
