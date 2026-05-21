@@ -43,6 +43,7 @@ Selain alur inti, sistem sudah dilengkapi:
 | **Reset Data** | Dashboard | Kembalikan ke 10 nasabah awal (cloud + lokal) |
 | **Unit tests** | `npm test` | 10 test Vitest untuk `calculateRiskScore` & `assignECLStage` |
 | **Toast & loading state** | global | Notifikasi sukses/gagal (sonner) + overlay sinkronisasi cloud |
+| **AI Assistant (chatbot)** | tombol ✨ pojok kanan bawah | Tanya apa saja soal aplikasi (formula, internal control, PSAK 71) + angka portfolio live. Pakai Groq, jawaban streaming. Setup: lihat `AI_SETUP.md` |
 
 > Penjelasan ramah + skenario demo/testing lengkap ada di **`script-plus-scenariotesting.md`**.
 
@@ -254,6 +255,19 @@ Sistem dua-tema dengan toggle di navbar (pill switch sun/moon di kanan, `role="s
 State `theme` hidup di `App.tsx`, dipersist ke `localStorage` (key `theme`), dan ditulis ke `<html data-theme="...">`. Semua warna theme-aware dikemas sebagai CSS custom property di `src/index.css` (`--app-bg`, `--app-text`, `--accent-primary`, `--glass-bg`, `--cover-gradient`, dst). Status colors (green/amber/red) dan brand blues sengaja **tidak** ditokenisasi karena kontras OK di kedua tema.
 
 ---
+
+## AI Assistant (Chatbot)
+
+Tombol ✨ di pojok kanan bawah membuka **AIS Assistant** — chatbot yang menjawab pertanyaan soal aplikasi (cara kerja, formula scoring, internal control, PSAK 71, journal) **dan** angka portfolio yang sedang aktif. Ditenagai **Groq** dengan respons streaming.
+
+- **Konteks:** tiap pertanyaan dikirim dengan system prompt berisi pengetahuan statis aplikasi + ringkasan data live (counts, total, ECL per stage, Net Revenue) yang dihitung **identik** dengan `VisitExplore.tsx`, jadi angkanya konsisten dengan Financial Report.
+- **Read-only:** assistant hanya membaca data; tidak mengubah data atau klik tombol.
+- **Dua mode (otomatis):** dev pakai `VITE_GROQ_API_KEY` (browser → Groq); produksi pakai `GROQ_API_KEY` server-side via serverless `/api/chat` (key tidak ikut ke bundle).
+- Kalau key tidak di-set saat dev, tombol disembunyikan — tidak ada error.
+
+Setup lengkap (key gratis + env): **`AI_SETUP.md`**.
+
+Implementasi: `src/components/AIChat.tsx` (UI), `src/lib/groq.ts` (client + mode), `src/lib/aiContext.ts` (system prompt + data live), `api/chat.ts` (proxy Vercel).
 
 ## Getting Started
 

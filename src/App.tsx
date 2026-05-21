@@ -4,6 +4,7 @@ import ParticleCanvas from './components/ParticleCanvas';
 import Navigation from './components/Navigation';
 import LoadingScreen from './components/LoadingScreen';
 import CustomCursor from './components/CustomCursor';
+import AIChat from './components/AIChat';
 import CoverSpread from './sections/CoverSpread';
 import FeaturedArtifacts from './sections/FeaturedArtifacts';
 import HistorySpread from './sections/HistorySpread';
@@ -271,6 +272,10 @@ function App() {
           </div>
         ))}
       </div>
+
+      {!isLoading && (
+        <AIChat applications={applications} currentUser={currentUser} currentPage={currentPage} theme={theme} />
+      )}
 
       {!isLoading && (
         <div className="fixed right-5 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-2.5 no-print">
